@@ -1,7 +1,11 @@
 import socket
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+host_ip = "8.8.8.8"
 
 common_ports = {
+    7 : "Echo",
     20: "FTP-data",
     21: "FTP",
     22: "SSH",
@@ -37,38 +41,69 @@ common_ports = {
     995: "POP3S",
 } 
 
-def scan_ports(host: str, port:int) -> tuple[bool, int, float]:
+def scan_ports(host: str, port: int) -> tuple[bool, int]:
+  """Escaneia a porta passada e torna se foi possivel se conecatar a ela.
+  
+  Args:
+      host (str): O IP que desejamos ver se a porta está aberta
+      port (int): A porta a ser testada sobre o IP passado 
+  Returns:
+      is_open (bool): Booleano que indica se consegiu comunicar com a porta
+      port (int): A porta testada, para ser usada em iteração de prints de resultados
   """
-  Tenta connectar ao IP informado com as portas em common_ports.
-  Retorna uma tupla de (is_opened, error_code)
-  """
-
   with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
     s.settimeout(1)
 
-    start_time = time.time()
     result = s.connect_ex((host, port))
-    finish_time = time.time()
 
-    elapsed_time = (finish_time - start_time)
     is_open = (result == 0)
 
-    return((is_open, result, elapsed_time))
+    return (is_open, port)
+
+def assync_call(ports: list, host: str):
+  """Faz a criação de threads e sua chamada dinamica sobre a lista de portas (common_ports)
+     
+  Args:
+      ports (list): A lista de portas a serem iteradas
+      host (str): O IP que desejamos iterar
+  Returns:
+      results (tuple list): Lista de tuplas onde cada um contem o is_open e port gerados em scan_ports()
+  """
+  future_list = []
+
+  with ThreadPoolExecutor(max_workers=20) as executioner:
+    for port in list(ports):
+      future = executioner.submit(scan_ports, host=host, port=port)
+      future_list.append(future)
+
+  results = []
+
+  for future in as_completed(future_list):
+    port, is_open = future.result()
+    results.append((port, is_open))
+
+  return(results)
 
 def main():
 
-  status = "None"
-  host = "8.8.8.8"
+  sorted_common_ports = dict(sorted(common_ports.items()))
 
-  print(f"Starting Port Scan at : {host}")
+  start= time.time()
+  results = assync_call(ports=common_ports, host=host_ip)
+  end = time.time()
 
-  for port, port_name in common_ports.items():
-    is_opened, error_code, duration = scan_ports(port=port, host=host)
+  # Ordena as llista de Tuplas em ordem numerica pela segunda key da tupla : key(1)
+  sorted_results = sorted(results, key=lambda x: x[1])
 
-    status = "OPENED" if is_opened else "CLOSED"
-    print(f"Port {port:2d} ({port_name:11s}): {status} | Return: {error_code} | Time: {duration:.2f}s")
-  
+  print(f"Starting Port Scan at : {host_ip}")
+
+  for is_open, port in sorted_results:
+    if is_open == True : status = "OPENED" 
+    else: status = "CLOSED"
+    print(f"Port {port:2d} ({sorted_common_ports[port]:11s}): {status}")
+
+  print(f"Port Scan done in {end - start:.2f} seconds")
 
 if __name__ == "__main__":
   main()
